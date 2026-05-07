@@ -1,0 +1,13 @@
+data/
+data_spilt/
+Grad_Abs/
+Grad_Cam/
+GradCam_1layer/
+GradCam_2layer/
+GradCam_3layer/
+GradCam_4layer/
+GradMax_2layer/
+moto_data/
+soturon_retry/
+間違いだったスコア算出結果/
+output/
