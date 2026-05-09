@@ -88,25 +88,27 @@ class GradCAM:
         # 指定した層での特徴マップを切り取って保存
         activations = self.activations.detach()
         
-        # 重みの形を [1, 2048, 1, 1] に変形して、特徴マップに一気に掛け合わせる
+        # 重みの形を [1, 2048, 1, 1] に変形して、特徴マップ掛け合わせる
         weights = pooled_gradients.view(1, -1, 1, 1)
         weighted_activations = activations * weights
         
-        # チャネル方向に合計（論文通りの仕様はmeanではなくsum）
+        # チャネル方向に合計
         heatmap = torch.sum(weighted_activations, dim=1).squeeze()
 
-
+        # -------------------------------------
         # 正規化
-        # テンソル -> Numpy配列に変換
+        # 1. テンソル -> Numpy配列に変換
+        # 2. Relu関数で負の値0に (絶対値の.absも試し済み)
+        # 3. (上の値)÷(全体の最大値)で0~1に正規化 (一応最大値が0のときのエッジケース考えてif してるけど起こりうることはなさげ -> 消してもよきかも)
+        # -------------------------------------
         heatmap = heatmap.detach().cpu().numpy()
-        # ReLuで負->0,  その後のifのところで最大値で割って0~1に正規化
         heatmap = np.maximum(heatmap, 0)
         # heatmap = np.abs(heatmap)　#5/3 この子はもう使わない
         if np.max(heatmap) > 0:
             heatmap /= np.max(heatmap)
             print('ヒートマップは最大値で正規化DONE')
         else:
-            print('ヒートマップの最大値が0以下だったから割ってない')    #起こりうる？一応
+            print('ヒートマップの最大値が0だったから割ってない')    #起こりうる？一応
         
         return heatmap, output.item()
 
@@ -114,19 +116,18 @@ class GradCAM:
 # 2. ヒートマップと元画像の重ね合わせ(出力用)
 # ==========================================
 def save_cam_on_image(img_path, heatmap):
-    # 1. 元画像読み込み(RGB)->リサイズ->numpy配列で0~1
+    # 1. 元画像読み込み->リサイズ->numpy配列で0~1
     img = Image.open(img_path).convert('L')   #4/22変えたいけどそのあとの参照チャネル数が違う
     img = img.resize((224, 224)) 
     img_np = np.array(img) / 255.0
     img_np = np.stack([img_np, img_np, img_np], axis=-1) # 4/23　上のフレーに合わせてこれ追加した
 
     # 2. ヒートマップを画像サイズに拡大
-    # heatmapは今 0~1 の float (7x7とか)
-    # ヒートマップ 0~1のfloat -> 8ビット符号なし整数 -> リサイズ
+    # ヒートマップ 0~1のfloat (ex 7×7) -> 8ビット符号なし整数 -> リサイズ
     heatmap_img = Image.fromarray(np.uint8(255 * heatmap)) # 一旦画像にする
     heatmap_img = heatmap_img.resize((224, 224), resample=Image.BILINEAR) # 滑らかに拡大
     
-    # 3. ヒートマップに色をつける (Matplotlibのカラーマップ機能を使用)
+    # 3. ヒートマップに色をつける
     # 8ビット符号なし -> Numpy配列 0~1 に戻す
     heatmap_np_resized = np.array(heatmap_img) / 255.0
 
@@ -156,11 +157,11 @@ def save_cam_on_image(img_path, heatmap):
     plt.title(f"layer{layer_num}_block{block_num}")
     plt.axis('off')
     
-    # 出力先指定
+    # 出力先(ハイパラごとのフォルダ先にした)
     save_dir = f"Grad_Cam/ep{num_epochs}_lr{learning_rate}"
     os.makedirs(save_dir, exist_ok=True)
 
-    # 出力画像名
+    # 出力画像名 (層とブロックはファイル名で管理 ->層ごとのフォルダ管理してたけどこっちの方が一旦楽そう)
     out_path = os.path.join(save_dir, f"{base_name}_{layer_num}_{block_num}.png")
 
     plt.tight_layout()
@@ -183,14 +184,14 @@ if __name__ == "__main__":
     model.to(device)
     model.eval()
 
-    # ★ ターゲット層の指定
+    # ターゲット層の指定
     target_layer = getattr(model, f'layer{layer_num}')[block_num]
 
     # GradCAMのインスタンス化
     grad_cam = GradCAM(model, target_layer)
 
-    # --- 画像の準備 ---
-    img_path = f"data/Isousa/{use_img_name}" # 解析したい画像のパス
+    # 解析したい画像選択
+    img_path = f"data/Isousa/{use_img_name}" 
 
     try:
         image = Image.open(img_path).convert('L')     #4/23 ここRGB->L
