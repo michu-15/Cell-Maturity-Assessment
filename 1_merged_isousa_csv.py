@@ -3,35 +3,50 @@ import pandas as pd
 import shutil
 import re
 
+# ==========================================
+# 動かすメモ
+# 【役割】
+    # ①全スコアのcsvまとめ　data/merged_all_label.py
+    # ②各No.フォルダにある位相差画像のまとめ data/Isousa
+# 【入力】
+    # csv: moto_data直下に 'No.XX_score.csv' がいくつもある
+    #         -> 使いたくないNo.のスコアcsvはスキップ可能(指定したNo.XX の除外)
+    # Isousa画像: moto_data/各No.XX/Isousa があるはず．これらをまとめる
+# 【出力】
+    # data フォルダを新しく生成
+    #     ->その中にそれぞれ data/isousa と data/merged_all_score.csv が生成
 
-# -----------------------------------------------------
-# ①全スコアのcsvまとめ　data/merged_all_label.py
-# ②位相差画像のまとめ data/Isousa
+# 【OldとNewのcsvのカラム名 5/7最新】
+    # Old_csv: Image Name,DAPI File Used,MHC File Used,Maturity score,DAPI Count,Merged Count
+    # new_csv : Image Name,Maturity score
 
-# 指定したNo.XX を除外した
-# 各csvの結合　＆　分類用の閾値設定とラベル分けしたｃｓｖに変換
-# Input : Fiji のカラム名
-# 5/7最新 csv: Image Name,DAPI File Used,MHC File Used,Maturity score,DAPI Count,Merged Count
-# 　44行目の DATA_DIR.mkdir(parents=True, exist_ok=True) parents=Trueは中間層作成のため　あとで消す
-# 分類もある版のカラム名 csv : "Image Name", "Maturity score", "label_class"
 
-# 閾値変えるときは位相差の移動部分をコメントアウト！！！！！！
+# どっちか片方だけやり直したいならコメントアウト
+# 画像のまとめは，連チャンでやるとき用にしてないからフォルダごと消す
+#     -> 空にするor上書きかはそのときによるから一旦追記はなし
 
-# -----------------------------------------------------
+# ==========================================
+
+# ==========================================
+# 進捗メモ
+    # 卒論まで :分類問題にするときののクラスタリング用(3クラス)コードもここで処理
+    # 26年 GWまでのチェック : 分類コード削除 
+    #                         -> soturonn_secoundのフォルダに元データはあり．
+    #                         -> 元コードは綺麗にしてない．戻るならここと比較
+    # 5/7 44行目の DATA_DIR.mkdir(parents=True, exist_ok=True) parents=Trueは中間層作成のため -> あとで消す
+    # あとやりたいこと(5/7)
+    #     いらないコメント削除
+# ==========================================
 
 
 
 # ==========================
 # 設定
 # ==========================
-MOTO_DIR = Path("../soturonn_second/moto_data")   # No.XX_score.csv がある場所
-DATA_DIR = Path("soturon_retry/data")        # 出力先
+MOTO_DIR = Path("../tus_ishi/moto_data")   # No.XX_score.csv がある場所
+DATA_DIR = Path("../tus_ishi/data")        # 出力先
 EXCLUDE_NOS = []        # ← 除外したい No.XX を書く (卒論はNo.1,8を除外)
 OUT_CSV = DATA_DIR / "merged_all_score.csv"
-
-# 3クラス分類（Noneなら自動で1/3, 2/3分位）
-THRESH_1 = None
-THRESH_2 = None
 
 
 # csvのファイル名の指定 
@@ -45,7 +60,7 @@ def main():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     # ==========================
-    # 1) CSV結合
+    # 1. CSV結合
     # ==========================
     dfs = []
 
@@ -63,10 +78,9 @@ def main():
         df = pd.read_csv(csv_path)
 
         # 必須カラム確認
-        # required = {"Image Name", "Maturity score"}
         required = {"DAPI File Used", "Maturity score"}
         if not required.issubset(df.columns):
-            raise ValueError(f"{csv_path} に必須カラムがありません")
+            raise ValueError(f"{csv_path} に必須カラムないよ〜")
 
         #ーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーー
         # 4/13 追加
@@ -80,8 +94,9 @@ def main():
 
 
         # 5/7追記
-        # そもそも base_name = 'Image Name' のカラムで 拡張子なしのパスあり。このあとかえてもいいえけど
-        # したので動いてるならいったんこれでおけかも
+        # そもそも base_name = 'Image Name' のカラムで 拡張子なしのベースパスを作った。このあとかえてもいいえけど
+        # したので動いてるならいったんこれでおけ
+        # かえるとしたらbase_name + Isousa.tif　の形だけどreplaceでもきれいさ変わらないかも　じゃあFijiでbase_nameのカラムそもそもいらない説もある
         #------------------------------------------------------
         df = df[["DAPI File Used", "Maturity score"]].copy()
         df = df.rename(columns={"DAPI File Used": "Image Name"})
@@ -99,72 +114,40 @@ def main():
     merged = pd.concat(dfs, ignore_index=True)
     merged = merged.dropna(subset=["Maturity score"]).reset_index(drop=True)
     
-    # クラス分類するときはこいつもコメントアウト
+
     merged.to_csv(OUT_CSV, index=False)
-    print(f"Saved CSV -> {OUT_CSV}")
+    print(f"全スコアまとめたCSVの保存先 -> {OUT_CSV}")
 
-
-    # # ==========================
-    # # 2) 3クラス分類
-    # # ==========================
-    # # 1/3 でいったん
-    # if THRESH_1 is None or THRESH_2 is None:
-    #     th1 = merged["Maturity score"].quantile(1/3)
-    #     th2 = merged["Maturity score"].quantile(2/3)
-    #     print(f"[Auto threshold] low={th1:.4f}, high={th2:.4f}")
-    # else:
-    #     th1, th2 = THRESH_1, THRESH_2
-
-    # def to_class(x):
-    #     if x < th1:
-    #         return 0
-    #     elif x < th2:
-    #         return 1
-    #     else:
-    #         return 2
-
-    # merged["label_class"] = merged["Maturity score"].map(to_class).astype(int)
-
-    # merged = merged[["Image Name", "Maturity score", "label_class"]]
-    # merged.to_csv(OUT_CSV, index=False)
-
-    # print(f"Saved CSV -> {OUT_CSV}")
-    # # ==========================
-    # # 各クラスの枚数確認
-    # # ==========================
-    # class_counts = merged["label_class"].value_counts().sort_index()
-
-    # print("\n=== label_class counts ===")
-    # for cls, cnt in class_counts.items():
-    #     print(f"Class {cls}: {cnt}")
 
 
     # ==========================
-    # 3) Isousa画像を移動
+    # 2. Isousa画像を移動
     # ==========================
-    # isousa_out = DATA_DIR / "Isousa"
-    # isousa_out.mkdir(exist_ok=True)
+    isousa_out = DATA_DIR / "Isousa"
+    isousa_out.mkdir(exist_ok=True)
 
-    # for sub in MOTO_DIR.iterdir():
-    #     if not sub.is_dir():
-    #         continue
-    #     if not re.fullmatch(r"No\.\d+", sub.name):
-    #         continue
-    #     if sub.name in EXCLUDE_NOS:
-    #         continue
+    for sub in MOTO_DIR.iterdir():
+        if not sub.is_dir():
+            continue
+        if not re.fullmatch(r"No\.\d+", sub.name):
+            continue
+        if sub.name in EXCLUDE_NOS:
+            continue
 
-    #     src_dir = sub / "Isousa"
-    #     if not src_dir.exists():
-    #         continue
+        src_dir = sub / "Isousa"
+        if not src_dir.exists():
+            continue
 
-    #     for img in src_dir.iterdir():
-    #         if img.is_file():
-    #             dst = isousa_out / img.name
-    #             if dst.exists():
-    #                 raise FileExistsError(f"同名ファイルあり: {dst}")
-    #             shutil.copy2(img, dst)
+        for img in src_dir.iterdir():
+            if img.is_file():
+                dst = isousa_out / img.name
+                if dst.exists():
+                    raise FileExistsError(f"同名ファイルあり: {dst}")
+                shutil.copy2(img, dst)
 
-    # print(f"Moved Isousa images -> {isousa_out}")
+    print(f"次の場所にIsousa移動させたよん -> {isousa_out}")
+    image_list = list(isousa_out.glob("*")) 
+    print(f"位相差画像の総枚数: {len(image_list)}枚")
 
 
 if __name__ == "__main__":
